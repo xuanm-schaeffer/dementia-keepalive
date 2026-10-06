@@ -5,6 +5,7 @@ then confirms the simulation embedded on the USC Schaeffer page works.
 Exits with an error if any check fails, so GitHub emails you about the failed run.
 """
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -66,9 +67,20 @@ def check_schaeffer(browser):
         iframe = page.locator("iframe[src*='streamlit.app']").first
         iframe.wait_for(state="attached", timeout=60_000)
         iframe.scroll_into_view_if_needed()
-        frame = page.frame_locator("iframe[src*='streamlit.app']").first
-        run_simulation(frame, name)
-        return True
+        # The Streamlit embed nests the app in frames, so search every frame
+        # on the page for the Run Simulation button.
+        deadline = time.time() + LOAD_TIMEOUT / 1000
+        while time.time() < deadline:
+            for frame in page.frames:
+                try:
+                    if frame.locator(RUN_BUTTON).count() > 0:
+                        run_simulation(frame, name)
+                        return True
+                except Exception:
+                    pass  # frame was still loading or navigated away; try again
+            page.wait_for_timeout(3000)
+        frames = ", ".join(f.url[:80] for f in page.frames)
+        raise TimeoutError(f"Run Simulation button never appeared. Frames seen: {frames}")
     except Exception as e:
         print(f"  {name}: FAILED - {e}")
         return False
